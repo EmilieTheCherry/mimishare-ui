@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces — dark neutral with a hint of blue-violet */
+  --color-canvas: #030508;
+  --color-surface: #090c11;
+  --color-elevated: #14191f;
+  --color-border: #22272e;
+
+  /* Accent — purple */
+  --color-accent: #9b5cf6;
+  --color-accent-dark: #7c3aed;
+
+  /* Text */
+  --color-ink: #e4e8ed;
+  --color-muted: #686c72;
+}
+
+@layer base {
+  p,
+  span {
+    @apply text-ink font-semibold tracking-wide text-2xl;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
