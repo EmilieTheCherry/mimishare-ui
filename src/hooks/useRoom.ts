@@ -1,12 +1,15 @@
 import { useCallback } from "react";
 import { MESSAGE_TYPE, ROLE } from "../type/WebSocketEvent";
-import { useHostStream } from "./useHostStream";
 import { useCaptureScreen } from "./useCaptureScreen";
 import { useAppContext } from "../context/AppContext";
+import { setVideoTracksContentHint } from "../util/streamContentHint";
+import { useStreamSettingsContext } from "../context/StreamSettingsContext";
 
 export const useRoom = (videoRef: React.RefObject<HTMLVideoElement | null>) => {
-  const { roomCode, signalingWebSocketRef, setRole } = useAppContext();
-  const { setupHost, setupViewer } = useHostStream();
+  const { roomCode, signalingWebSocketRef, setRole, setMediaStream } =
+    useAppContext();
+
+  const { videoContentHint } = useStreamSettingsContext();
   const { requestMedia } = useCaptureScreen();
 
   const onLeaveRoomClicked = useCallback(() => {}, []);
@@ -26,21 +29,21 @@ export const useRoom = (videoRef: React.RefObject<HTMLVideoElement | null>) => {
     (roomCode: string) => {
       if (!videoRef.current) return;
       try {
-        setupViewer(videoRef as React.RefObject<HTMLVideoElement>);
         joinRoom(ROLE.VIEWER, roomCode);
       } catch (e: unknown) {
         console.error("Error while requesting media stream : ", e);
       }
     },
-    [joinRoom, setupViewer, videoRef],
+    [joinRoom, videoRef],
   );
 
   const onCreateRoomClicked = useCallback(async () => {
     try {
       const stream = await requestMedia();
+      setMediaStream(stream);
 
       if (!stream) return;
-      await setupHost(stream);
+      await setVideoTracksContentHint(stream, videoContentHint);
 
       if (!videoRef.current) return;
       videoRef.current.srcObject = stream;
@@ -48,7 +51,8 @@ export const useRoom = (videoRef: React.RefObject<HTMLVideoElement | null>) => {
     } catch (e: unknown) {
       console.error("Error while requesting media stream : ", e);
     }
-  }, [joinRoom, requestMedia, setupHost, videoRef]);
+  }, [joinRoom, requestMedia, setMediaStream, videoContentHint, videoRef]);
+
   return {
     roomCode,
     onCreateRoomClicked,

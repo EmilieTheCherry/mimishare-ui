@@ -15,17 +15,21 @@ import {
 } from "../type/WebSocketEvent";
 import { useSignalingCallbacks } from "../hooks/useSignalingCallbacks";
 import { getEnv } from "../env";
+import { useRTCPeerConnectionsHandler } from "../hooks/useRTCPeerConnectionsHandler";
+import { useStreamSettingsContext } from "./StreamSettingsContext";
 
 type AppContextType = {
   roomCode: string | undefined;
   setRoomCode: (v: string) => void;
-  peerConnectionRef: React.RefObject<RTCPeerConnection | null>;
   signalingWebSocketRef: React.RefObject<Socket<
     ServerToClientEvents,
     ClientToServerEvents
   > | null>;
   role: keyof typeof ROLE | undefined;
   setRole: (role: keyof typeof ROLE | undefined) => void;
+  mediaStream: MediaStream | undefined;
+  setMediaStream: (mediaStream: MediaStream | undefined) => void;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
 };
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -42,10 +46,15 @@ export const AppContextProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
+  const { preferredCodec } = useStreamSettingsContext();
+  const [mediaStream, setMediaStream] = useState<MediaStream | undefined>(
+    undefined,
+  );
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const rtcPool = useRTCPeerConnectionsHandler(preferredCodec);
   const [role, setRole] = useState<keyof typeof ROLE | undefined>(undefined);
   const [roomCode, setRoomCode] = useState<string | undefined>(undefined);
   const signalingWebSocketRef = useRef<Socket | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const {
     onAnswer,
     onDisconnect,
@@ -54,32 +63,19 @@ export const AppContextProvider = ({
     onUserJoinedRoom,
     onRoomCreated,
   } = useSignalingCallbacks(
-    peerConnectionRef,
+    rtcPool,
     signalingWebSocketRef,
     setRoomCode,
+    role,
+    mediaStream,
+    videoRef,
   );
 
   useEffect(() => {
-    if (peerConnectionRef.current) return;
-    peerConnectionRef.current = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        {
-          urls: "turn:signaling-mimishare.emiliethecherry.ovh:3478",
-          username: "login",
-          credential: "password",
-        },
-      ],
-    });
-    return () => {
-      peerConnectionRef.current?.close();
-      peerConnectionRef.current = null;
-    };
-  }, [peerConnectionRef]);
-
-  useEffect(() => {
-    if (signalingWebSocketRef.current) return;
-    signalingWebSocketRef.current = io(`${protocol}://${domain}:${port}`);
+    if (!signalingWebSocketRef.current) {
+      signalingWebSocketRef.current = io(`${protocol}://${domain}:${port}`);
+    }
+    console.log("Set all listeners");
     signalingWebSocketRef.current.on("connect", () =>
       console.log(`Connected with id ${signalingWebSocketRef.current?.id}`),
     );
@@ -96,9 +92,7 @@ export const AppContextProvider = ({
     signalingWebSocketRef.current.on(MESSAGE_TYPE.ANSWER, onAnswer);
     signalingWebSocketRef.current.on(MESSAGE_TYPE.ROOM_CREATED, onRoomCreated);
     return () => {
-      signalingWebSocketRef.current?.offAny();
-      signalingWebSocketRef.current?.disconnect();
-      signalingWebSocketRef.current = null;
+      signalingWebSocketRef.current!.removeAllListeners();
     };
   }, [
     onAnswer,
@@ -107,19 +101,28 @@ export const AppContextProvider = ({
     onOffer,
     onRoomCreated,
     onUserJoinedRoom,
-    peerConnectionRef,
   ]);
+
+  useEffect(() => {
+    return () => {
+      signalingWebSocketRef.current?.offAny();
+      signalingWebSocketRef.current?.disconnect();
+      signalingWebSocketRef.current = null;
+    };
+  }, []);
 
   const contextValue = useMemo(
     () => ({
       roomCode,
       setRoomCode,
-      peerConnectionRef,
       signalingWebSocketRef,
       role,
       setRole,
+      mediaStream,
+      setMediaStream,
+      videoRef,
     }),
-    [role, roomCode],
+    [mediaStream, role, roomCode],
   );
 
   return (

@@ -20,9 +20,10 @@ export type Role = {
   role: keyof typeof ROLE;
 };
 
-export type IceCandidateEvent = ToSocket & {
-  ice: RTCIceCandidateInit;
-};
+export type IceCandidateEvent = FromSocket &
+  ToSocket & {
+    ice: RTCIceCandidateInit;
+  };
 
 export type SdpOfferEvent = FromSocket &
   ToSocket & {
@@ -61,7 +62,9 @@ export interface ServerToClientEvents {
 // Events the client emits → server listens
 export interface ClientToServerEvents {
   [MESSAGE_TYPE.JOIN_ROOM]: (payload: JoinRoomEvent) => void;
-  [MESSAGE_TYPE.ICE_CANDIDATE]: (payload: IceCandidateEvent) => void;
+  [MESSAGE_TYPE.ICE_CANDIDATE]: (
+    payload: Omit<IceCandidateEvent, "from">,
+  ) => void;
   [MESSAGE_TYPE.OFFER]: (payload: Omit<SdpOfferEvent, "from">) => void;
   [MESSAGE_TYPE.ANSWER]: (payload: Omit<SdpAnswerEvent, "from">) => void;
 }

@@ -11,31 +11,36 @@ import {
   type UserJoinedRoomEvent,
 } from "../type/WebSocketEvent";
 import type { Socket } from "socket.io-client";
+import type { RtcPool } from "./useRTCPeerConnectionsHandler";
 
 export const useSignalingCallbacks = (
-  peerConnectionRef: React.RefObject<RTCPeerConnection | null>,
+  rtcPool: RtcPool,
   signalingWebSocketRef: React.RefObject<Socket<
     ServerToClientEvents,
     ClientToServerEvents
   > | null>,
   setRoomCode: (v: string) => void,
+  role: string | undefined,
+  mediaStream: MediaStream | undefined,
+  videoRef: React.RefObject<HTMLVideoElement | null>,
 ) => {
   const onDisconnect = useCallback(() => {
     console.log(`Disconnected with id ${signalingWebSocketRef.current?.id}`);
   }, [signalingWebSocketRef]);
 
   const onIceCandidate = useCallback(
-    async (IceCandidatePayoad: IceCandidateEvent) => {
-      const ice = IceCandidatePayoad.ice;
+    async (iceCandidatePayoad: IceCandidateEvent) => {
+      const ice = iceCandidatePayoad.ice;
       console.log(`Ice Candidates received "${ice}"`);
-      await peerConnectionRef.current?.addIceCandidate(ice);
+      await rtcPool.addIceCandidate(iceCandidatePayoad.from, ice);
     },
-    [peerConnectionRef],
+    [rtcPool],
   );
 
   const onIceCandidateFound = useCallback(
     (event: RTCPeerConnectionIceEvent, to: string) => {
       if (event.candidate) {
+        console.log(`Ice Candidates found "${event.candidate}"`);
         signalingWebSocketRef.current?.emit(MESSAGE_TYPE.ICE_CANDIDATE, {
           ice: event.candidate,
           to: to,
@@ -47,56 +52,70 @@ export const useSignalingCallbacks = (
 
   const onOffer = useCallback(
     async (sdpOfferPayload: SdpOfferEvent) => {
-      peerConnectionRef.current!.onicecandidate = (
-        event: RTCPeerConnectionIceEvent,
-      ) => onIceCandidateFound(event, sdpOfferPayload.from);
+      rtcPool.createPeerConnection(sdpOfferPayload.from);
+
+      await rtcPool.addOnTrackCallback(
+        sdpOfferPayload.from,
+        (stream: MediaStream) => {
+          videoRef.current!.srcObject = stream;
+        },
+      );
+
+      await rtcPool.addOnIceCandidateCallback(
+        sdpOfferPayload.from,
+        (event: RTCPeerConnectionIceEvent) =>
+          onIceCandidateFound(event, sdpOfferPayload.from),
+      );
 
       const offer = sdpOfferPayload.offer;
       console.log(`Offer received "${JSON.stringify(offer)}"`);
-      await peerConnectionRef.current!.setRemoteDescription(offer);
-      if (!peerConnectionRef.current) {
-        throw new Error("Peer connection not ready for setup !");
-      }
-      const answer = await peerConnectionRef.current!.createAnswer();
-      await peerConnectionRef.current!.setLocalDescription(answer);
+      await rtcPool.setRemoteDescription(sdpOfferPayload.from, offer);
+
+      const answer = await rtcPool.createAnswer(sdpOfferPayload.from);
+      await rtcPool.setLocalDescription(sdpOfferPayload.from, answer);
       signalingWebSocketRef.current?.emit(MESSAGE_TYPE.ANSWER, {
-        answer: peerConnectionRef.current?.localDescription,
+        answer: answer,
         to: sdpOfferPayload.from,
       });
     },
-    [onIceCandidateFound, peerConnectionRef, signalingWebSocketRef],
+    [rtcPool, signalingWebSocketRef, videoRef, onIceCandidateFound],
   );
 
   const onAnswer = useCallback(
     async (sdpAnswerPayload: SdpAnswerEvent) => {
-      peerConnectionRef.current!.onicecandidate = (
-        event: RTCPeerConnectionIceEvent,
-      ) => onIceCandidateFound(event, sdpAnswerPayload.from);
-
       const answer = sdpAnswerPayload.answer;
       console.log(`Answer received "${JSON.stringify(answer)}"`);
-      await peerConnectionRef.current!.setRemoteDescription(answer);
+      await rtcPool.setRemoteDescription(sdpAnswerPayload.from, answer);
     },
-    [onIceCandidateFound, peerConnectionRef],
+    [rtcPool],
   );
 
   const onUserJoinedRoom = useCallback(
-    (userJoinedRoomPayload: UserJoinedRoomEvent) => {
+    async (userJoinedRoomPayload: UserJoinedRoomEvent) => {
       const newUserId = userJoinedRoomPayload.from;
       const newUserRole = userJoinedRoomPayload.role;
       console.log(`User "${newUserId}" joined room with role "${newUserRole}"`);
-      console.log(peerConnectionRef.current);
-      if (
-        newUserRole === ROLE.VIEWER &&
-        peerConnectionRef.current?.localDescription
-      ) {
+      if (newUserRole === ROLE.VIEWER && role === ROLE.HOST) {
+        rtcPool.createPeerConnection(newUserId);
+        await rtcPool.addOnIceCandidateCallback(
+          userJoinedRoomPayload.from,
+          (event: RTCPeerConnectionIceEvent) =>
+            onIceCandidateFound(event, userJoinedRoomPayload.from),
+        );
+        if (!mediaStream)
+          throw new Error(
+            "Media Stream is undefined, cannot initialize WebRTC connection with media stream !",
+          );
+        // initWebRTC
+        await rtcPool.initWebRTCStream(userJoinedRoomPayload.from, mediaStream);
+
         signalingWebSocketRef.current?.emit(MESSAGE_TYPE.OFFER, {
           to: newUserId,
-          offer: peerConnectionRef.current?.localDescription,
+          offer: rtcPool.getLocalDescription(userJoinedRoomPayload.from),
         });
       }
     },
-    [peerConnectionRef, signalingWebSocketRef],
+    [mediaStream, onIceCandidateFound, role, rtcPool, signalingWebSocketRef],
   );
 
   const onRoomCreated = useCallback(
