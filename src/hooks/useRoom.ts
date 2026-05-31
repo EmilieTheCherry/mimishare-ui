@@ -4,15 +4,42 @@ import { useCaptureScreen } from "./useCaptureScreen";
 import { useAppContext } from "../context/AppContext";
 import { setVideoTracksContentHint } from "../util/streamContentHint";
 import { useStreamSettingsContext } from "../context/StreamSettingsContext";
+import { CURRENT_PAGE_ID } from "../type/App";
 
-export const useRoom = (videoRef: React.RefObject<HTMLVideoElement | null>) => {
-  const { roomCode, signalingWebSocketRef, setRole, setMediaStream } =
-    useAppContext();
+export const useRoom = () => {
+  const {
+    roomCode,
+    signalingWebSocketRef,
+    setRole,
+    setRoomCode,
+    setMediaStream,
+    videoRef,
+    setCurrentPageId,
+    rtcPool,
+    audio,
+  } = useAppContext();
 
   const { videoContentHint } = useStreamSettingsContext();
   const { requestMedia } = useCaptureScreen();
 
-  const onLeaveRoomClicked = useCallback(() => {}, []);
+  const onLeaveRoomClicked = useCallback(async () => {
+    signalingWebSocketRef.current!.emit(MESSAGE_TYPE.LEAVE_ROOM, {
+      roomId: roomCode!,
+    });
+    setRole(undefined);
+    setRoomCode(undefined);
+    setCurrentPageId(CURRENT_PAGE_ID.HOME);
+    await rtcPool.closeAllConnections();
+    await audio.stop();
+  }, [
+    audio,
+    roomCode,
+    rtcPool,
+    setCurrentPageId,
+    setRole,
+    setRoomCode,
+    signalingWebSocketRef,
+  ]);
 
   const joinRoom = useCallback(
     (role: keyof typeof ROLE, roomCode?: string) => {
@@ -21,41 +48,47 @@ export const useRoom = (videoRef: React.RefObject<HTMLVideoElement | null>) => {
         role: role,
         roomId: roomCode,
       });
+
+      setCurrentPageId(CURRENT_PAGE_ID.VIEW_STREAM);
     },
-    [setRole, signalingWebSocketRef],
+    [setCurrentPageId, setRole, signalingWebSocketRef],
   );
 
   const onJoinRoomClicked = useCallback(
     (roomCode: string) => {
-      if (!videoRef.current) return;
       try {
         joinRoom(ROLE.VIEWER, roomCode);
       } catch (e: unknown) {
-        console.error("Error while requesting media stream : ", e);
+        console.error("Error while joining room: ", e);
       }
     },
-    [joinRoom, videoRef],
+    [joinRoom],
   );
 
-  const onCreateRoomClicked = useCallback(async () => {
-    try {
-      const stream = await requestMedia();
-      setMediaStream(stream);
+  const startHosting = useCallback(
+    async (audioStream?: MediaStream | null) => {
+      try {
+        const videoStream = await requestMedia();
 
-      if (!stream) return;
-      await setVideoTracksContentHint(stream, videoContentHint);
+        audioStream?.getAudioTracks().forEach((t) => videoStream.addTrack(t));
+        setMediaStream(videoStream);
 
-      if (!videoRef.current) return;
-      videoRef.current.srcObject = stream;
-      joinRoom(ROLE.HOST);
-    } catch (e: unknown) {
-      console.error("Error while requesting media stream : ", e);
-    }
-  }, [joinRoom, requestMedia, setMediaStream, videoContentHint, videoRef]);
+        if (!videoStream) return;
+        await setVideoTracksContentHint(videoStream, videoContentHint);
+
+        if (!videoRef.current) return;
+        videoRef.current.srcObject = videoStream;
+        joinRoom(ROLE.HOST);
+      } catch (e: unknown) {
+        console.error("Error while starting hosting: ", e);
+      }
+    },
+    [joinRoom, requestMedia, setMediaStream, videoContentHint, videoRef],
+  );
 
   return {
     roomCode,
-    onCreateRoomClicked,
+    startHosting,
     onLeaveRoomClicked,
     onJoinRoomClicked,
   };

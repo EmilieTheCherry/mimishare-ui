@@ -15,12 +15,17 @@ import {
 } from "../type/WebSocketEvent";
 import { useSignalingCallbacks } from "../hooks/useSignalingCallbacks";
 import { getEnv } from "../env";
-import { useRTCPeerConnectionsHandler } from "../hooks/useRTCPeerConnectionsHandler";
+import {
+  useRTCPeerConnectionsHandler,
+  type RtcPool,
+} from "../hooks/useRTCPeerConnectionsHandler";
 import { useStreamSettingsContext } from "./StreamSettingsContext";
+import { CURRENT_PAGE_ID, type CurrentPageIdType } from "../type/App";
+import { useAppAudio, type UseAppAudioReturn } from "../hooks/useAppAudio";
 
 type AppContextType = {
   roomCode: string | undefined;
-  setRoomCode: (v: string) => void;
+  setRoomCode: (v: string | undefined) => void;
   signalingWebSocketRef: React.RefObject<Socket<
     ServerToClientEvents,
     ClientToServerEvents
@@ -30,6 +35,10 @@ type AppContextType = {
   mediaStream: MediaStream | undefined;
   setMediaStream: (mediaStream: MediaStream | undefined) => void;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  currentPageId: CurrentPageIdType;
+  setCurrentPageId: (v: CurrentPageIdType) => void;
+  rtcPool: RtcPool;
+  audio: UseAppAudioReturn;
 };
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -46,7 +55,11 @@ export const AppContextProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
+  const [currentPageId, setCurrentPageId] = useState<CurrentPageIdType>(
+    CURRENT_PAGE_ID.HOME,
+  );
   const { preferredCodec } = useStreamSettingsContext();
+  const audio = useAppAudio();
   const [mediaStream, setMediaStream] = useState<MediaStream | undefined>(
     undefined,
   );
@@ -62,6 +75,7 @@ export const AppContextProvider = ({
     onOffer,
     onUserJoinedRoom,
     onRoomCreated,
+    onUserLeftRoom,
   } = useSignalingCallbacks(
     rtcPool,
     signalingWebSocketRef,
@@ -91,6 +105,10 @@ export const AppContextProvider = ({
     signalingWebSocketRef.current.on(MESSAGE_TYPE.OFFER, onOffer);
     signalingWebSocketRef.current.on(MESSAGE_TYPE.ANSWER, onAnswer);
     signalingWebSocketRef.current.on(MESSAGE_TYPE.ROOM_CREATED, onRoomCreated);
+    signalingWebSocketRef.current.on(
+      MESSAGE_TYPE.USER_LEFT_ROOM,
+      onUserLeftRoom,
+    );
     return () => {
       signalingWebSocketRef.current!.removeAllListeners();
     };
@@ -101,6 +119,7 @@ export const AppContextProvider = ({
     onOffer,
     onRoomCreated,
     onUserJoinedRoom,
+    onUserLeftRoom,
   ]);
 
   useEffect(() => {
@@ -121,8 +140,12 @@ export const AppContextProvider = ({
       mediaStream,
       setMediaStream,
       videoRef,
+      currentPageId,
+      setCurrentPageId,
+      rtcPool,
+      audio,
     }),
-    [mediaStream, role, roomCode],
+    [roomCode, role, mediaStream, currentPageId, rtcPool, audio],
   );
 
   return (

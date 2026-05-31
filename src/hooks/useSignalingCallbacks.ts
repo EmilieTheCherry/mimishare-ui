@@ -9,6 +9,7 @@ import {
   type SdpOfferEvent,
   type ServerToClientEvents,
   type UserJoinedRoomEvent,
+  type UserLeftRoomEvent,
 } from "../type/WebSocketEvent";
 import type { Socket } from "socket.io-client";
 import type { RtcPool } from "./useRTCPeerConnectionsHandler";
@@ -125,6 +126,17 @@ export const useSignalingCallbacks = (
     [setRoomCode],
   );
 
+  const onUserLeftRoom = useCallback(
+    async (userLeftRoomEvent: UserLeftRoomEvent) => {
+      console.log("SOMEONE LEFT THE ROOM");
+      if (role === ROLE.HOST) {
+        console.log("CLOSE CONNECTION");
+        await rtcPool.closeConnection(userLeftRoomEvent.from);
+      }
+    },
+    [role, rtcPool],
+  );
+
   return {
     onUserJoinedRoom,
     onAnswer,
@@ -132,5 +144,6 @@ export const useSignalingCallbacks = (
     onIceCandidate,
     onOffer,
     onRoomCreated,
+    onUserLeftRoom,
   };
 };

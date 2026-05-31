@@ -1,75 +1,70 @@
-# React + TypeScript + Vite
+# Screenshare
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Electron app for screen and audio sharing over WebRTC. The host captures a window or display (including its audio via a native WASAPI addon) and streams it to viewers who connect with a room code. Signaling is handled by a Socket.IO server.
 
-Currently, two official plugins are available:
+**Windows only** — the audio capture addon uses the Windows WASAPI loopback API.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Prerequisites
 
-## React Compiler
+- [Node.js](https://nodejs.org/) v18+
+- [pnpm](https://pnpm.io/)
+- Python 3.x
+- Visual Studio Build Tools with the **Desktop development with C++** workload
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
-
-Note: This will impact Vite dev & build performances.
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Verify node-gyp is available:
+```
+node-gyp --version
+```
+If not, install it:
+```
+npm install -g node-gyp
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Setup
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+pnpm install
+```
+
+## Build the native audio addon
+
+The audio capture addon must be compiled before running or packaging the app.
+
+```
+cd native
+node-gyp configure
+node-gyp build
+```
+
+The compiled addon ends up at `native/build/Release/audio_capture.node`.
+
+## Environment
+
+Copy `.env.example` to `.env` and fill in your signaling server details:
+
+```
+VITE_SIGNALINGSERVER_URL=localhost
+VITE_SIGNALINGSERVER_PORT=3000
+VITE_NODE_ENV=development
+```
+
+For a production build, edit `.env.production` with your real server address.
+
+## Development
+
+```
+pnpm dev
+```
+
+To test the viewer side locally in a second Electron window:
+```
+pnpm dev:viewer
+```
+
+## Package for distribution
+
+```
+pnpm dist
+```
+
+This compiles TypeScript, builds the Vite bundle with `.env.production`, and packages everything into an NSIS installer under `release/`.

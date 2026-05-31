@@ -35,3 +35,9 @@ body,
     -apple-system,
     sans-serif;
 }
+
+* {
+  box-sizing: box-content;
+  -webkit-user-select: none;
+  user-select: none;
+}

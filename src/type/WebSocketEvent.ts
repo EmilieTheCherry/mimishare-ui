@@ -1,6 +1,7 @@
 export const MESSAGE_TYPE = {
   ROOM_CREATED: "ROOM_CREATED",
-  JOIN_ROOM: "JOIN_ROM",
+  JOIN_ROOM: "JOIN_ROOM",
+  LEAVE_ROOM: "LEAVE_ROOM",
   USER_JOINED_ROOM: "USER_JOINED_ROOM",
   OFFER: "OFFER",
   ANSWER: "ANSWER",
@@ -18,6 +19,10 @@ export type ToSocket = {
 
 export type Role = {
   role: keyof typeof ROLE;
+};
+
+export type LeaveRoomEvent = {
+  roomId: string;
 };
 
 export type IceCandidateEvent = FromSocket &
@@ -67,4 +72,5 @@ export interface ClientToServerEvents {
   ) => void;
   [MESSAGE_TYPE.OFFER]: (payload: Omit<SdpOfferEvent, "from">) => void;
   [MESSAGE_TYPE.ANSWER]: (payload: Omit<SdpAnswerEvent, "from">) => void;
+  [MESSAGE_TYPE.LEAVE_ROOM]: (payload: LeaveRoomEvent) => void;
 }

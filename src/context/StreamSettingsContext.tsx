@@ -35,7 +35,7 @@ export const StreamSettingsContextProvider = ({
   const [resolutionId, setResolutionId] = useState<RESOLUTIONS_IDS_TYPE>(
     RESOLUTIONS_IDS.R1080P,
   );
-  console.log(resolutionId);
+
   const contextValue = useMemo(
     () => ({
       preferredCodec,

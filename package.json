@@ -3,14 +3,33 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev:viewer": "electron . --viewer",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dist": "tsc -b && vite build --mode production && electron-builder"
+  },
+  "build": {
+    "npmRebuild": true,
+    "appId": "com.yourname.screenshare",
+    "productName": "Screenshare",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "public/**"
+    ],
+    "win": {
+      "target": "nsis"
+    }
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
+    "lucide-react": "^1.17.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "socket.io-client": "^4.8.3",
@@ -26,12 +45,15 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vite-plugin-electron": "^0.29.1"
   }
 }

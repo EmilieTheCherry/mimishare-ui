@@ -11,9 +11,8 @@ export const VideoPlayback = ({ videoRef }: PropsType) => {
     <video
       autoPlay
       ref={videoRef}
-      className={`max-w-full max-h-full rounded-lg ${!roomCode ? "hidden" : ""}`}
-      controlsList=""
-      muted={role === ROLE.HOST}
+      className={`m-auto w-8/10 rounded-lg ${!roomCode ? "hidden" : ""}`}
+      controls
     />
   );
 };

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect } from "react";
 import { prioritizeCodec } from "../util/codecOrdering";
+import type { RTCPeerConnectionDetail } from "../type/App";
 
 export type RtcPool = {
   createPeerConnection: (id: string) => void;
@@ -13,6 +14,7 @@ export type RtcPool = {
     description: RTCSessionDescriptionInit,
   ) => Promise<void>;
   closeConnection: (id: string) => Promise<void>;
+  closeAllConnections: () => Promise<void>;
   createAnswer: (id: string) => Promise<RTCSessionDescriptionInit>;
   createOffer: (id: string) => Promise<RTCSessionDescriptionInit>;
   addOnIceCandidateCallback: (
@@ -38,13 +40,20 @@ export const useRTCPeerConnectionsHandler = (
   preferredCodec: string,
 ): RtcPool => {
   const peerConnectionsRef =
-    React.useRef<Map<string, RTCPeerConnection>>(undefined);
+    React.useRef<Map<string, RTCPeerConnectionDetail>>(undefined);
 
   useEffect(() => {
     peerConnectionsRef.current = new Map();
   }, []);
 
   const getPeerConnection = useCallback((id: string) => {
+    if (!peerConnectionsRef.current!.has(id)) {
+      throw new Error("Id not found !");
+    }
+    return peerConnectionsRef.current!.get(id)!.connection;
+  }, []);
+
+  const getPeerConnectionDetail = useCallback((id: string) => {
     if (!peerConnectionsRef.current!.has(id)) {
       throw new Error("Id not found !");
     }
@@ -66,7 +75,10 @@ export const useRTCPeerConnectionsHandler = (
       ],
     });
 
-    peerConnectionsRef.current?.set(id, connection);
+    peerConnectionsRef.current?.set(id, {
+      connection,
+      debugIntervalId: -1,
+    });
   }, []);
 
   const setLocalDescription = useCallback(
@@ -99,11 +111,21 @@ export const useRTCPeerConnectionsHandler = (
 
   const closeConnection = useCallback(
     async (id: string) => {
-      getPeerConnection(id)?.close();
+      const connection = getPeerConnectionDetail(id);
+      connection.connection.close();
+      clearInterval(connection.debugIntervalId);
       peerConnectionsRef.current?.delete(id);
     },
-    [getPeerConnection],
+    [getPeerConnectionDetail],
   );
+
+  const closeAllConnections = useCallback(async () => {
+    peerConnectionsRef.current?.forEach((c) => {
+      c.connection.close();
+      clearInterval(c.debugIntervalId);
+    });
+    peerConnectionsRef.current?.clear();
+  }, []);
 
   const addOnIceCandidateCallback = useCallback(
     async (id: string, cb: (ev: RTCPeerConnectionIceEvent) => void) => {
@@ -182,7 +204,7 @@ export const useRTCPeerConnectionsHandler = (
 
   const configureDebug = useCallback(
     (id: string) => {
-      setInterval(async () => {
+      getPeerConnectionDetail(id).debugIntervalId = setInterval(async () => {
         const connection = getPeerConnection(id);
         const stats: RTCStatsReport = await connection.getStats();
         let lastBytes = 0;
@@ -204,7 +226,7 @@ export const useRTCPeerConnectionsHandler = (
         });
       }, 1000);
     },
-    [getPeerConnection],
+    [getPeerConnection, getPeerConnectionDetail],
   );
 
   const getLocalDescription = useCallback(
@@ -264,5 +286,6 @@ export const useRTCPeerConnectionsHandler = (
     getLocalDescription,
     addTracks,
     initWebRTCStream,
+    closeAllConnections,
   };
 };
