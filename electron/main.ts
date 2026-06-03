@@ -37,7 +37,7 @@ interface NativeAddon {
     pid: number,
     callbacks: {
       onFormat: (fmt: AudioFormat) => void;
-      onChunk: (buf: Buffer) => void;
+      onChunk: (buf: ArrayBuffer) => void;
       onError: (msg: string) => void;
       includeChildren: boolean;
     },
@@ -248,8 +248,8 @@ ipcMain.handle("audio:start", (event, pid: number) => {
       console.log(`[main] Format: ${fmt.sampleRate}Hz ${fmt.channels}ch`);
       win?.webContents.send("audio:format", fmt);
     },
-    onChunk(buf: Buffer) {
-      if (win) win.webContents.send("audio:chunk", Buffer.from(buf.buffer));
+    onChunk(buf: ArrayBuffer) {
+      if (win) win.webContents.send("audio:chunk", Buffer.from(buf));
     },
     onError(msg: string) {
       console.error("[main] Capture error:", msg);

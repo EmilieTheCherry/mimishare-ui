@@ -5,6 +5,7 @@ import { useAppContext } from "../context/AppContext";
 import { setVideoTracksContentHint } from "../util/streamContentHint";
 import { useStreamSettingsContext } from "../context/StreamSettingsContext";
 import { CURRENT_PAGE_ID } from "../type/App";
+import { delayVideoStream } from "../util/delayVideoStream";
 
 export const useRoom = () => {
   const {
@@ -48,7 +49,6 @@ export const useRoom = () => {
         role: role,
         roomId: roomCode,
       });
-
       setCurrentPageId(CURRENT_PAGE_ID.VIEW_STREAM);
     },
     [setCurrentPageId, setRole, signalingWebSocketRef],
@@ -65,25 +65,45 @@ export const useRoom = () => {
     [joinRoom],
   );
 
+  const configureStream = useCallback(
+    async (
+      delayMsRef: { current: number },
+      videoStream: MediaStream,
+      audioStream?: MediaStream | null,
+    ) => {
+      const delayedVideoStream = delayVideoStream(videoStream, delayMsRef);
+      await setVideoTracksContentHint(delayedVideoStream, videoContentHint);
+
+      const finalStream = new MediaStream();
+      finalStream.addTrack(delayedVideoStream.getVideoTracks()[0]);
+      audioStream?.getAudioTracks().forEach((t) => finalStream.addTrack(t));
+
+      return finalStream;
+    },
+    [videoContentHint],
+  );
+
   const startHosting = useCallback(
-    async (audioStream?: MediaStream | null) => {
+    async (
+      audioStream: MediaStream | undefined,
+      delayMsRef: { current: number },
+    ) => {
       try {
         const videoStream = await requestMedia();
-
-        audioStream?.getAudioTracks().forEach((t) => videoStream.addTrack(t));
-        setMediaStream(videoStream);
-
-        if (!videoStream) return;
-        await setVideoTracksContentHint(videoStream, videoContentHint);
-
-        if (!videoRef.current) return;
-        videoRef.current.srcObject = videoStream;
+        const hostStream = await configureStream(
+          delayMsRef,
+          videoStream,
+          audioStream,
+        );
+        setMediaStream(hostStream);
         joinRoom(ROLE.HOST);
+        if (!videoRef.current) return;
+        videoRef.current.srcObject = hostStream;
       } catch (e: unknown) {
         console.error("Error while starting hosting: ", e);
       }
     },
-    [joinRoom, requestMedia, setMediaStream, videoContentHint, videoRef],
+    [configureStream, joinRoom, requestMedia, setMediaStream, videoRef],
   );
 
   return {

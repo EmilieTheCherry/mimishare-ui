@@ -17,7 +17,12 @@ export interface UseAppAudioReturn {
   format: AudioFormat | null;
   activePid: number | null;
   streamRef: RefObject<MediaStream | null>;
+  /** Continuously updated total audio pipeline latency in ms.
+   *  Starts near 0 and stabilises once the worklet queue reaches steady state. */
+  latencyMsRef: RefObject<number>;
 }
+
+const IPC_SAMPLE_WINDOW = 20;
 
 export function useAppAudio(): UseAppAudioReturn {
   const [status, setStatus] = useState<AudioStatus>("idle");
@@ -29,6 +34,10 @@ export function useAppAudio(): UseAppAudioReturn {
   const workletRef = useRef<AudioWorkletNode | null>(null);
   const destRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const ipcSamplesRef = useRef<number[]>([]);
+  const workletQueueMsRef = useRef<number>(0);
+  const latencyMsRef = useRef<number>(0);
 
   const teardown = useCallback(async () => {
     window.audioCapture?.removeAll();
@@ -43,6 +52,9 @@ export function useAppAudio(): UseAppAudioReturn {
     workletRef.current = null;
     destRef.current = null;
     streamRef.current = null;
+    ipcSamplesRef.current = [];
+    workletQueueMsRef.current = 0;
+    latencyMsRef.current = 0;
     setStatus("idle");
     setFormat(null);
     setActivePid(null);
@@ -71,6 +83,23 @@ export function useAppAudio(): UseAppAudioReturn {
           return reject(new Error(msg));
         }
 
+        ipcSamplesRef.current = [];
+        workletQueueMsRef.current = 0;
+        latencyMsRef.current = 0;
+
+        const recomputeLatency = () => {
+          const samples = ipcSamplesRef.current;
+          if (samples.length === 0) return;
+          const sorted = [...samples].sort((a, b) => a - b);
+          const ipcMedian = sorted[Math.floor(sorted.length / 2)];
+          const webAudioMs =
+            ((ctxRef.current?.baseLatency ?? 0) +
+              (ctxRef.current?.outputLatency ?? 0)) *
+            1000;
+          latencyMsRef.current =
+            ipcMedian + workletQueueMsRef.current + webAudioMs;
+        };
+
         let resolved = false;
 
         window.audioCapture.onFormat(async (fmt: AudioFormat) => {
@@ -98,6 +127,18 @@ export function useAppAudio(): UseAppAudioReturn {
           });
           workletRef.current = worklet;
 
+          worklet.port.onmessage = (e) => {
+            if (e.data?.queuedSamples !== undefined) {
+              workletQueueMsRef.current =
+                (e.data.queuedSamples / fmt.sampleRate) * 1000;
+              recomputeLatency();
+              console.log(
+                `[audio] latency: ${latencyMsRef.current.toFixed(0)} ms` +
+                  `  (queue: ${workletQueueMsRef.current.toFixed(0)} ms)`,
+              );
+            }
+          };
+
           const dest = ctx.createMediaStreamDestination();
           destRef.current = dest;
           streamRef.current = dest.stream;
@@ -112,14 +153,14 @@ export function useAppAudio(): UseAppAudioReturn {
         });
 
         window.audioCapture.onChunk((buf: ArrayBuffer) => {
-          console.log(
-            "[audio] chunk received, byteLength:",
-            buf.byteLength,
-            "worklet ready:",
-            !!workletRef.current,
-          );
+          const captureMs = new Float64Array(buf, 0, 1)[0];
+          const pcm = buf.slice(8);
+          workletRef.current?.port.postMessage(pcm, [pcm]);
 
-          workletRef.current?.port.postMessage(buf, [buf]);
+          const samples = ipcSamplesRef.current;
+          samples.push(Date.now() - captureMs);
+          if (samples.length > IPC_SAMPLE_WINDOW) samples.shift();
+          recomputeLatency();
         });
 
         window.audioCapture.onError((msg: string) => {
@@ -155,5 +196,6 @@ export function useAppAudio(): UseAppAudioReturn {
     format,
     activePid,
     streamRef,
+    latencyMsRef,
   };
 }

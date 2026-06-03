@@ -217,6 +217,13 @@ static void CaptureThread(DWORD                    targetPid,
             return fail("System loopback: IAudioClient::Start failed");
         }
 
+        LARGE_INTEGER sysQpcFreq, sysQpcBase;
+        QueryPerformanceFrequency(&sysQpcFreq);
+        QueryPerformanceCounter(&sysQpcBase);
+        FILETIME sysFtBase; GetSystemTimePreciseAsFileTime(&sysFtBase);
+        ULARGE_INTEGER sysUliBase; sysUliBase.LowPart = sysFtBase.dwLowDateTime; sysUliBase.HighPart = sysFtBase.dwHighDateTime;
+        double sysWallMsBase = (double)(sysUliBase.QuadPart - 116444736000000000ULL) / 10000.0;
+
         HANDLE wh2[2] = { sysPktEvent, stopEvent };
         while (g_capture.running.load(std::memory_order_relaxed)) {
             DWORD w = WaitForMultipleObjects(2, wh2, FALSE, 200);
@@ -228,11 +235,15 @@ static void CaptureThread(DWORD                    targetPid,
                 BYTE*  data2      = nullptr;
                 UINT32 numFrames2 = 0;
                 DWORD  flags2     = 0;
+                UINT64 sysQpcPos2 = 0;
 
-                hr = sysCap->GetBuffer(&data2, &numFrames2, &flags2, nullptr, nullptr);
+                hr = sysCap->GetBuffer(&data2, &numFrames2, &flags2, nullptr, &sysQpcPos2);
                 if (FAILED(hr)) goto sys_done;
 
-                { bool   silent2      = (flags2 & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                { double captureMs2 = sysWallMsBase +
+                      (double)((LONGLONG)sysQpcPos2 - sysQpcBase.QuadPart) * 1000.0 / (double)sysQpcFreq.QuadPart;
+
+                  bool   silent2      = (flags2 & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
                   size_t sampleCount2 = (size_t)numFrames2 * channels;
                   auto*  heap2        = new std::vector<float>(sampleCount2, 0.0f);
 
@@ -261,12 +272,14 @@ static void CaptureThread(DWORD                    targetPid,
 
                   sysCap->ReleaseBuffer(numFrames2);
 
-                  tsfnChunk.NonBlockingCall([heap2](Napi::Env env, Napi::Function cb) {
-                      size_t byteLen = heap2->size() * sizeof(float);
-                      auto ab = Napi::ArrayBuffer::New(env, byteLen);
-                      memcpy(ab.Data(), heap2->data(), byteLen);
+                  tsfnChunk.NonBlockingCall([heap2, captureMs2](Napi::Env env, Napi::Function cb) {
+                      size_t pcmBytes   = heap2->size() * sizeof(float);
+                      size_t totalBytes = 8 + pcmBytes;
+                      auto ab = Napi::ArrayBuffer::New(env, totalBytes);
+                      memcpy(ab.Data(), &captureMs2, 8);
+                      memcpy(static_cast<uint8_t*>(ab.Data()) + 8, heap2->data(), pcmBytes);
                       delete heap2;
-                      cb.Call({ Napi::Float32Array::New(env, byteLen / sizeof(float), ab, 0) });
+                      cb.Call({ ab });
                   }); }
             }
         }
@@ -443,6 +456,15 @@ static void CaptureThread(DWORD                    targetPid,
 
     // ── 5. Read loop ─────────────────────────────────────────────────────────
 
+    // Establish a one-time QPC↔wall-clock baseline so we can convert the per-packet
+    // QPC position from GetBuffer into a wall-clock Unix-epoch millisecond value.
+    LARGE_INTEGER qpcFreq, qpcBase;
+    QueryPerformanceFrequency(&qpcFreq);
+    QueryPerformanceCounter(&qpcBase);
+    FILETIME ftBase; GetSystemTimePreciseAsFileTime(&ftBase);
+    ULARGE_INTEGER uliBase; uliBase.LowPart = ftBase.dwLowDateTime; uliBase.HighPart = ftBase.dwHighDateTime;
+    double wallMsBase = (double)(uliBase.QuadPart - 116444736000000000ULL) / 10000.0;
+
     HANDLE wh[2] = { packetEvent, stopEvent };
 
     while (g_capture.running.load(std::memory_order_relaxed)) {
@@ -456,8 +478,12 @@ static void CaptureThread(DWORD                    targetPid,
             UINT32 numFrames = 0;
             DWORD  flags     = 0;
 
-            hr = captureClient->GetBuffer(&data, &numFrames, &flags, nullptr, nullptr);
+            UINT64 qpcPos = 0;
+            hr = captureClient->GetBuffer(&data, &numFrames, &flags, nullptr, &qpcPos);
             if (FAILED(hr)) goto done;
+
+            { double captureMs = wallMsBase +
+                  (double)((LONGLONG)qpcPos - qpcBase.QuadPart) * 1000.0 / (double)qpcFreq.QuadPart;
 
             bool   silent      = (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
             size_t sampleCount = (size_t)numFrames * channels;
@@ -490,19 +516,17 @@ static void CaptureThread(DWORD                    targetPid,
 
             captureClient->ReleaseBuffer(numFrames);
 
-            tsfnChunk.NonBlockingCall([heap](Napi::Env env, Napi::Function cb) {
-                size_t byteLen = heap->size() * sizeof(float);
-
-                // Copy into a plain NAPI-managed ArrayBuffer.
-                // We cannot use an external buffer (one backed by heap->data())
-                // because Electron IPC cannot serialize externally-backed
-                // ArrayBuffers and throws a DataCloneError when trying.
-                auto ab = Napi::ArrayBuffer::New(env, byteLen);
-                memcpy(ab.Data(), heap->data(), byteLen);
+            // First 8 bytes: captureMs as a little-endian double (Unix epoch ms).
+            // Remaining bytes: interleaved float32 PCM samples.
+            tsfnChunk.NonBlockingCall([heap, captureMs](Napi::Env env, Napi::Function cb) {
+                size_t pcmBytes   = heap->size() * sizeof(float);
+                size_t totalBytes = 8 + pcmBytes;
+                auto ab = Napi::ArrayBuffer::New(env, totalBytes);
+                memcpy(ab.Data(), &captureMs, 8);
+                memcpy(static_cast<uint8_t*>(ab.Data()) + 8, heap->data(), pcmBytes);
                 delete heap;
-
-                cb.Call({ Napi::Float32Array::New(env, byteLen / sizeof(float), ab, 0) });
-            });
+                cb.Call({ ab });
+            }); }
         }
     }
 

@@ -17,6 +17,8 @@ type StreamSettingsContextType = {
   setVideoContentHint: (contentHint: VideoContentHintType) => void;
   resolutionId: RESOLUTIONS_IDS_TYPE;
   setResolutionId: (resolution: RESOLUTIONS_IDS_TYPE) => void;
+  videoDelayMs: number;
+  setVideoDelayMs: (ms: number) => void;
 };
 
 const StreamSettingsContext = createContext<StreamSettingsContextType | null>(
@@ -28,7 +30,8 @@ export const StreamSettingsContextProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
-  const [captureTargetFps, setCaptureTargetFps] = useState<number>(30);
+  const [captureTargetFps, setCaptureTargetFps] = useState<number>(60);
+  const [videoDelayMs, setVideoDelayMs] = useState<number>(0);
   const [preferredCodec, setPreferredCodec] = useState<CodecType>(CODEC.VP9);
   const [videoContentHint, setVideoContentHint] =
     useState<VideoContentHintType>(VIDEO_CONTENT_HINT.MOTION);
@@ -46,8 +49,16 @@ export const StreamSettingsContextProvider = ({
       setVideoContentHint,
       resolutionId,
       setResolutionId,
+      videoDelayMs,
+      setVideoDelayMs,
     }),
-    [captureTargetFps, preferredCodec, resolutionId, videoContentHint],
+    [
+      captureTargetFps,
+      preferredCodec,
+      resolutionId,
+      videoContentHint,
+      videoDelayMs,
+    ],
   );
 
   return (
